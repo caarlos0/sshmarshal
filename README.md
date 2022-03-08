@@ -1,1 +1,6 @@
 # sshmarshall
+
+Library containing code copied from x/crypto and [this patch][patch] so we can
+more easily marshal SSH private keys.
+
+[patch]: https://go-review.googlesource.com/c/crypto/+/218620/
