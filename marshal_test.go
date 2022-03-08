@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package sshmarshall
+package sshmarshal
 
 import (
 	"encoding/pem"
@@ -10,7 +10,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/caarlos0/sshmarshall/testdata"
+	"github.com/caarlos0/sshmarshal/testdata"
 	. "golang.org/x/crypto/ssh"
 )
 

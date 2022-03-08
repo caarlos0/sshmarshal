@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package sshmarshall
+package sshmarshal
 
 import (
 	"crypto"
@@ -20,7 +20,7 @@ import (
 	"io"
 	"math/big"
 
-	"github.com/caarlos0/sshmarshall/internal/bcrypt_pbkdf"
+	"github.com/caarlos0/sshmarshal/internal/bcrypt_pbkdf"
 	. "golang.org/x/crypto/ssh"
 )
 
