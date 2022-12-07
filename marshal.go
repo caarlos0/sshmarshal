@@ -17,7 +17,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"io"
 	"math/big"
 
 	"github.com/caarlos0/sshmarshal/internal/bcrypt_pbkdf"
@@ -44,7 +43,7 @@ func unencryptedOpenSSHMarshaler(privKeyBlock []byte) ([]byte, string, string, s
 func passphraseProtectedOpenSSHMarshaler(passphrase []byte) openSSHEncryptFunc {
 	return func(privKeyBlock []byte) ([]byte, string, string, string, error) {
 		salt := make([]byte, 16)
-		if _, err := io.ReadFull(rand.Reader, salt); err != nil {
+		if _, err := rand.Read(salt); err != nil {
 			return nil, "", "", "", err
 		}
 
@@ -63,9 +62,10 @@ func passphraseProtectedOpenSSHMarshaler(passphrase []byte) openSSHEncryptFunc {
 		keyBlock := generateOpenSSHPadding(privKeyBlock, aes.BlockSize)
 
 		// Encrypt the private key using the derived secret.
+
 		dst := make([]byte, len(keyBlock))
-		iv := k[32 : 32+aes.BlockSize]
-		block, err := aes.NewCipher(k[:32])
+		key, iv := k[:32], k[32:]
+		block, err := aes.NewCipher(key)
 		if err != nil {
 			return nil, "", "", "", err
 		}
@@ -77,25 +77,55 @@ func passphraseProtectedOpenSSHMarshaler(passphrase []byte) openSSHEncryptFunc {
 	}
 }
 
-const magic = "openssh-key-v1\x00"
+const privateKeyAuthMagic = "openssh-key-v1\x00"
 
 type openSSHEncryptFunc func(privKeyBlock []byte) (protectedKeyBlock []byte, cipherName, kdfName, kdfOptions string, err error)
 
+type openSSHEncryptedPrivateKey struct {
+	CipherName   string
+	KdfName      string
+	KdfOpts      string
+	NumKeys      uint32
+	PubKey       []byte
+	PrivKeyBlock []byte
+}
+
+type openSSHPrivateKey struct {
+	Check1  uint32
+	Check2  uint32
+	Keytype string
+	Rest    []byte `ssh:"rest"`
+}
+
+type openSSHRSAPrivateKey struct {
+	N       *big.Int
+	E       *big.Int
+	D       *big.Int
+	Iqmp    *big.Int
+	P       *big.Int
+	Q       *big.Int
+	Comment string
+	Pad     []byte `ssh:"rest"`
+}
+
+type openSSHEd25519PrivateKey struct {
+	Pub     []byte
+	Priv    []byte
+	Comment string
+	Pad     []byte `ssh:"rest"`
+}
+
+type openSSHECDSAPrivateKey struct {
+	Curve   string
+	Pub     []byte
+	D       *big.Int
+	Comment string
+	Pad     []byte `ssh:"rest"`
+}
+
 func marshalOpenSSHPrivateKey(key crypto.PrivateKey, comment string, encrypt openSSHEncryptFunc) (*pem.Block, error) {
-	var w struct {
-		CipherName   string
-		KdfName      string
-		KdfOpts      string
-		NumKeys      uint32
-		PubKey       []byte
-		PrivKeyBlock []byte
-	}
-	var pk1 struct {
-		Check1  uint32
-		Check2  uint32
-		Keytype string
-		Rest    []byte `ssh:"rest"`
-	}
+	var w openSSHEncryptedPrivateKey
+	var pk1 openSSHPrivateKey
 
 	// Random check bytes.
 	var check uint32
@@ -128,25 +158,21 @@ func marshalOpenSSHPrivateKey(key crypto.PrivateKey, comment string, encrypt ope
 		w.PubKey = Marshal(pubKey)
 
 		// Marshal private key.
-		key := struct {
-			N       *big.Int
-			E       *big.Int
-			D       *big.Int
-			Iqmp    *big.Int
-			P       *big.Int
-			Q       *big.Int
-			Comment string
-		}{
-			k.PublicKey.N, E,
-			k.D, k.Precomputed.Qinv, k.Primes[0], k.Primes[1],
-			comment,
+		key := openSSHRSAPrivateKey{
+			N:       k.PublicKey.N,
+			E:       E,
+			D:       k.D,
+			Iqmp:    k.Precomputed.Qinv,
+			P:       k.Primes[0],
+			Q:       k.Primes[1],
+			Comment: comment,
 		}
 		pk1.Keytype = KeyAlgoRSA
 		pk1.Rest = Marshal(key)
 	case ed25519.PrivateKey:
 		pub := make([]byte, ed25519.PublicKeySize)
 		priv := make([]byte, ed25519.PrivateKeySize)
-		copy(pub, k[ed25519.PublicKeySize:])
+		copy(pub, k[32:])
 		copy(priv, k)
 
 		// Marshal public key.
@@ -159,13 +185,10 @@ func marshalOpenSSHPrivateKey(key crypto.PrivateKey, comment string, encrypt ope
 		w.PubKey = Marshal(pubKey)
 
 		// Marshal private key.
-		key := struct {
-			Pub     []byte
-			Priv    []byte
-			Comment string
-		}{
-			pub, priv,
-			comment,
+		key := openSSHEd25519PrivateKey{
+			Pub:     pub,
+			Priv:    priv,
+			Comment: comment,
 		}
 		pk1.Keytype = KeyAlgoED25519
 		pk1.Rest = Marshal(key)
@@ -198,14 +221,11 @@ func marshalOpenSSHPrivateKey(key crypto.PrivateKey, comment string, encrypt ope
 		w.PubKey = Marshal(pubKey)
 
 		// Marshal private key.
-		key := struct {
-			Curve   string
-			Pub     []byte
-			D       *big.Int
-			Comment string
-		}{
-			curve, pub, k.D,
-			comment,
+		key := openSSHECDSAPrivateKey{
+			Curve:   curve,
+			Pub:     pub,
+			D:       k.D,
+			Comment: comment,
 		}
 		pk1.Keytype = keyType
 		pk1.Rest = Marshal(key)
@@ -223,7 +243,7 @@ func marshalOpenSSHPrivateKey(key crypto.PrivateKey, comment string, encrypt ope
 	b := Marshal(w)
 	block := &pem.Block{
 		Type:  "OPENSSH PRIVATE KEY",
-		Bytes: append([]byte(magic), b...),
+		Bytes: append([]byte(privateKeyAuthMagic), b...),
 	}
 	return block, nil
 }
