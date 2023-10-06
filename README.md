@@ -1,3 +1,9 @@
+This is now merged into x/crypto!
+
+
+------------
+
+
 # sshmarshal
 
 Library containing code copied from [x/crypto][crypto] and [this patch][patch] so we can
